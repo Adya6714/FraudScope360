@@ -1,0 +1,13 @@
+scikit-learn
+pandas
+numpy
+networkx
+ruptures
+node2vec
+fuzzywuzzy[speedup]
+python-Levenshtein
+sentence-transformers
+transformers
+Flask
+streamlit
+pytest
