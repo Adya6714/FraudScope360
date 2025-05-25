@@ -1,6 +1,7 @@
+# ignore virtual environment
+venv311/
+# Python cache
 __pycache__/
 *.pyc
-*.log
-venv/
-.env
+# Editor or OS files
 .DS_Store
