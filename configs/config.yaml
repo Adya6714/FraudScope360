@@ -31,3 +31,11 @@ decision:
   auto_block_threshold: 0.9
   alert_threshold: 0.7
   review_threshold: 0.5
+
+feature_columns:
+  - zscore_amount
+  - new_device_flag
+  - hr_0
+  - hr_1
+  # …
+  - hr_23
