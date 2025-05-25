@@ -87,6 +87,7 @@ explainer_nlp = shap.LinearExplainer(nlp.model, nlp.vec.transform(tickets_list))
 new_txns_df   = simulate(n_users=50, n_txns=20)
 new_txns_df["timestamp"] = pd.to_datetime(new_txns_df["timestamp"])
 features_new = extract_features(new_txns_df)
+# Align features: add missing, drop extra based on history
 features_new = features_new.reindex(columns=feature_cols, fill_value=0)
 
 # ─────────────────────────────────────────────────────────────────────────────

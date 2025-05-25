@@ -71,11 +71,11 @@ def score_txn(txn: Transaction):
         feats = feats.reindex(columns=feature_cols, fill_value=0)
         
         # c) Module scores
-        a_score = float(anomaly.predict(feats)[0])
-        cp_score = cpd.score(feats["zscore_amount"].iloc[0:feats.shape[1]])  # or appropriate window
+        a_score   = float(anomaly.predict(feats)[0])
+        cp_score  = cpd.score(feats["zscore_amount"].iloc[-10:])  # last 10 values
         net_score = float(network.score(txn.user))
         id_score  = int(idclust.score(txn.user))
-        text = f"User {txn.user} reported issue"
+        text      = f"User {txn.user} reported issue"
         nl_score  = float(nlp.score(text))
         
         # d) SHAP explanations: top-3 for anomaly and NLP
@@ -92,12 +92,16 @@ def score_txn(txn: Transaction):
         }
         
         # e) Fuse scores
-        scores = np.array([a_score, cp_score, net_score, id_score, nl_score])
-        risk = float((scores * np.array([w["anomaly"], w["change_point"], w["network"], w["id_cluster"], w["nlp"]])).sum())
+        weights = np.array([
+            w["anomaly"], w["change_point"],
+            w["network"], w["id_cluster"], w["nlp"]
+        ])
+        scores  = np.array([a_score, cp_score, net_score, id_score, nl_score])
+        risk    = float((scores * weights).sum())
         
+        # —— RETURN including explain —— 
         return {
             "risk_score": risk,
-            "explain": explain,
             "breakdown": {
                 "anomaly":      a_score,
                 "change_point": cp_score,
@@ -105,7 +109,8 @@ def score_txn(txn: Transaction):
                 "id_cluster":   id_score,
                 "nlp":          nl_score
             },
-            "explain": explain
+            "explain": explain   # ← make sure this line is here
         }
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
