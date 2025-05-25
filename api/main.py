@@ -97,6 +97,7 @@ def score_txn(txn: Transaction):
         
         return {
             "risk_score": risk,
+            "explain": explain,
             "breakdown": {
                 "anomaly":      a_score,
                 "change_point": cp_score,
