@@ -1,0 +1,28 @@
+anomaly:
+  contamination: 0.02
+  random_state: 42
+
+changepoint:
+  model: "rbf"
+  pen: 10
+
+graph:
+  dimensions: 32
+  walk_length: 10
+  num_walks: 50
+  window: 5
+
+identity:
+  eps: 1
+  min_samples: 1
+
+nlp:
+  ngram_range: [1, 2]
+  C: 1.0
+
+fusion_weights:
+  anomaly: 0.3
+  change_point: 0.2
+  network: 0.2
+  id_cluster: 0.15
+  nlp: 0.15

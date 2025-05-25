@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-def generate_data(n_users=50, n_txns=500):
+def simulate(n_users=50, n_txns=500):
     users = [f"user_{i}" for i in range(n_users)]
     txns = []
 
