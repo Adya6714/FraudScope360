@@ -26,3 +26,8 @@ fusion_weights:
   network: 0.2
   id_cluster: 0.15
   nlp: 0.15
+
+decision:
+  auto_block_threshold: 0.9
+  alert_threshold: 0.7
+  review_threshold: 0.5
