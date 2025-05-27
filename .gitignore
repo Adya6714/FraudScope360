@@ -6,3 +6,5 @@ __pycache__/
 # Editor or OS files
 .DS_Storedata/test_transaction.csv
 data/train_transaction.csv
+data/train_transaction.csv
+data/test_transaction.csv
