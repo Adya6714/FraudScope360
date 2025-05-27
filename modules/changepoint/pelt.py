@@ -16,7 +16,8 @@ class ChangePointDetector:
             algo = rpt.Pelt(model=self.model_type)
             algo.fit(series.values)
             pts = algo.predict(pen=self.pen)
-            count = max(len(pts)-1, 0)
+            # Pelt returns indices; number of true change‐points is len(pts)-1
+            count = max(len(pts) - 1, 0)
             logger.debug("Found %d change points", count)
             return count
         except BadSegmentationParameters:

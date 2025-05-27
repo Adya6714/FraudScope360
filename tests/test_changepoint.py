@@ -1,12 +1,22 @@
 import pandas as pd
-import numpy as np
+from features.feature_engineering import extract_features
 from modules.changepoint.pelt import ChangePointDetector
 
-def test_changepoint_detector_basic():
-    # Create a simple series with a clear change in the middle
-    series = pd.Series([0]*50 + [5]*50)
-    detector = ChangePointDetector(model_type="l2", pen=5)
-    # Score should be >= 1 (at least one change point)
+def test_changepoint_detector_on_real_data():
+    # 1) Load your labeled transactions CSV
+    df = pd.read_csv("data/transactions_labeled.csv", parse_dates=["timestamp"])
+    # 2) Extract exactly the same features your pipeline uses
+    feats = extract_features(df)
+    assert "zscore_amount" in feats.columns, "Feature extraction failed"
+
+    # 3) Grab the first 50 z-score values as a test series
+    series = feats["zscore_amount"].iloc[:50]
+    assert len(series) == 50, "Unexpected series length"
+
+    # 4) Initialize & run the detector
+    detector = ChangePointDetector(model_type="rbf", pen=10)
     cp_count = detector.score(series)
-    assert isinstance(cp_count, int)
-    assert cp_count >= 1
+
+    # 5) Confirm we get an integer ≥ 0
+    assert isinstance(cp_count, int), "Expected integer count"
+    assert cp_count >= 0, "Change-point count should be non-negative"

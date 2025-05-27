@@ -1,0 +1,14 @@
+user,amount,timestamp,device,ip,merchant,country,is_fraud
+3869,500.0,2017-12-01 01:35:58,american express,comcast.net,R,327.0,0
+3869,500.0,2017-12-01 01:37:02,american express,comcast.net,R,327.0,0
+3869,500.0,2017-12-01 01:41:41,american express,comcast.net,R,327.0,0
+3869,125.0,2017-12-04 22:58:18,american express,anonymous.com,R,327.0,0
+3869,750.0,2017-12-08 15:45:38,american express,anonymous.com,R,191.0,0
+3869,750.0,2017-12-08 15:48:50,american express,anonymous.com,R,191.0,0
+3869,200.0,2017-12-15 15:38:33,american express,yahoo.com,R,330.0,0
+3869,100.0,2017-12-21 17:58:45,american express,gmail.com,R,441.0,0
+3869,200.0,2018-01-05 17:29:31,american express,anonymous.com,R,204.0,0
+3869,125.0,2018-04-01 22:45:55,american express,gmail.com,R,337.0,0
+3869,75.0,2018-04-01 22:50:24,american express,yahoo.com,R,337.0,0
+3869,150.0,2018-04-17 18:01:03,american express,gmail.com,R,441.0,0
+3869,200.0,2018-04-20 18:43:54,american express,anonymous.com,R,204.0,0

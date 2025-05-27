@@ -27,8 +27,10 @@ class IdentityClustering:
             self.model = DBSCAN(eps=eps, min_samples=min_samples)
             df['cluster'] = self.model.fit_predict(df[['sim']])
             self.df = df
-            logger.info("IdentityClustering trained on %d users, found %d clusters",
-                        len(users), len(df['cluster'].unique()))
+            logger.info(
+              "IdentityClustering trained on %d users, found %d clusters",
+              len(users), df['cluster'].nunique()
+            )
         except Exception:
             logger.exception("Failed to initialize IdentityClustering")
 

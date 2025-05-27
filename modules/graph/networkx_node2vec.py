@@ -1,3 +1,5 @@
+# modules/graph/networkx_node2vec.py
+
 import logging
 import networkx as nx
 from node2vec import Node2Vec
@@ -32,17 +34,17 @@ class NetworkAnalyzer:
     def score(self, user_id):
         """
         Returns the L2 norm of the node embedding for the given user_id.
-        If the user is not in the graph, returns 0.
+        If the user is not in the graph, returns 0.0 as a Python float.
         """
         try:
             vec = self.model.wv[user_id]
-            # Cast to native Python float so isinstance(score, float) passes
+            # Cast to native Python float so isinstance(..., float) is True
             score = float(np.linalg.norm(vec))
             logger.debug("Network score for %s: %f", user_id, score)
             return score
         except KeyError:
-            logger.warning("User %s not found in graph; network score=0", user_id)
-            return 0
+            logger.warning("User %s not found in graph; network score=0.0", user_id)
+            return 0.0
         except Exception:
             logger.exception("NetworkAnalyzer.score failed for %s", user_id)
-            return 0
+            return 0.0

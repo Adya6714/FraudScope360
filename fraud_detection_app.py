@@ -1,13 +1,11 @@
+# pipeline_demo_real.py
+
 import pandas as pd
 import numpy as np
 import yaml
 import shap
 import logging
 
-# 1. Simulation helpers
-from data_ingest.simulate import simulate, simulate_tickets, simulate_edges
-
-# 2. Feature engineering and modules
 from features.feature_engineering import extract_features
 from modules.anomaly.isolation_forest import AnomalyDetector
 from modules.changepoint.pelt import ChangePointDetector
@@ -15,194 +13,155 @@ from modules.graph.networkx_node2vec import NetworkAnalyzer
 from modules.identity.dbscan_identity import IdentityClustering
 from modules.nlp.tfidf_logistic import NLPModule
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CONFIG & LOGGING
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    format="%(asctime)s %(name)s %(levelname)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 1) Load config
 with open("configs/config.yaml", "r") as f:
-    config = yaml.safe_load(f)
-
-# Sub-configs
-an_cfg  = config["anomaly"]
-cp_cfg  = config["changepoint"]
-g_cfg   = config["graph"]
-id_cfg  = config["identity"]
-nlp_cfg = config["nlp"]
-w_cfg   = config["fusion_weights"]
-d_cfg   = config["decision"]
+    cfg      = yaml.safe_load(f)
+an_cfg    = cfg["anomaly"]
+cp_cfg    = cfg["changepoint"]
+g_cfg     = cfg["graph"]
+id_cfg    = cfg["identity"]
+nlp_cfg   = cfg["nlp"]
+w_cfg     = cfg["fusion_weights"]
+d_cfg     = cfg["decision"]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# A) Prepare historical data
-history_txns_df = simulate(n_users=50, n_txns=500)
-tickets_list    = simulate_tickets(n=100)
-edges_df        = simulate_edges(n_users=50, n_edges=200)
-
-# B) Feature extraction on history
-features_hist = extract_features(history_txns_df)
-feature_cols  = features_hist.columns.tolist()
-
-# C) Initialize & train modules
-anomaly = AnomalyDetector(
-    contamination=an_cfg["contamination"],
-    random_state=an_cfg["random_state"]
+# A) REAL historical data
+logger.info("Loading real history from CSV…")
+history = pd.read_csv(
+    "data/transactions_labeled.csv",
+    parse_dates=["timestamp"],
+    low_memory=False
 )
-anomaly.fit(features_hist)
-logger.info("Creating SHAP explainer for AnomalyDetector")
-explainer_anomaly = shap.TreeExplainer(anomaly.model)
+# ensure timestamp truly datetime and user truly string
+history["timestamp"] = pd.to_datetime(history["timestamp"])
+history["user"]      = history["user"].astype(str)
+logger.info("History rows: %d", len(history))
 
-cpd = ChangePointDetector(
-    model_type=cp_cfg["model"],
-    pen=cp_cfg["pen"]
+# B) Build user-graph (country co-membership)
+logger.info("Building user graph from history…")
+uc    = history[["user", "country"]].dropna().drop_duplicates()
+left  = uc.rename(columns={"user": "u1"})
+right = uc.rename(columns={"user": "u2"})
+pairs = pd.merge(left, right, on="country").query("u1 != u2")
+pairs["pair"] = pairs.apply(lambda r: tuple(sorted((r.u1, r.u2))), axis=1)
+edges = (
+    pairs
+    .drop_duplicates("pair")
+    .loc[:, ["u1", "u2"]]
+    .rename(columns={"u1": "src", "u2": "dst"})
+)
+if len(edges) > 20000:
+    edges = edges.sample(20000, random_state=42).reset_index(drop=True)
+logger.info("Graph edges: %d", len(edges))
+
+# C) Extract features on real history
+logger.info("Extracting features on history…")
+feats_hist   = extract_features(history)
+feature_cols = feats_hist.columns.tolist()
+logger.info("Feature dim: %d", len(feature_cols))
+
+# D) Initialize & train modules on real data
+logger.info("Training AnomalyDetector…")
+anomaly = AnomalyDetector(**an_cfg)
+anomaly.fit(feats_hist)
+
+logger.info("Initializing ChangePointDetector…")
+cpd = ChangePointDetector(model_type=cp_cfg["model"], pen=cp_cfg["pen"])
+
+logger.info("Initializing IdentityClustering…")
+idclust = IdentityClustering(
+    txns_df=history,
+    eps=id_cfg["eps"],
+    min_samples=id_cfg["min_samples"]
 )
 
+logger.info("Initializing NetworkAnalyzer…")
 network = NetworkAnalyzer(
-    edges_df=edges_df,
+    edges_df=edges,
     dimensions=g_cfg["dimensions"],
     walk_length=g_cfg["walk_length"],
     num_walks=g_cfg["num_walks"],
     window=g_cfg["window"]
 )
 
-idclust = IdentityClustering(
-    txns_df=history_txns_df,
-    eps=id_cfg["eps"],
-    min_samples=id_cfg["min_samples"]
+logger.info("Training NLPModule (synthetic tickets)…")
+from data_ingest.simulate import simulate_tickets
+tickets = simulate_tickets(n=100)
+nlp     = NLPModule(ngram_range=tuple(nlp_cfg["ngram_range"]), C=nlp_cfg["C"])
+nlp.fit(tickets)
+
+# E) SHAP explainers
+logger.info("Building SHAP explainers…")
+explainer_anom = shap.KernelExplainer(
+    lambda X: anomaly.model.decision_function(X),
+    shap.sample(feats_hist, 50)
+)
+explainer_nlp = shap.LinearExplainer(
+    nlp.model,
+    nlp.vec.transform(tickets)
 )
 
-nlp = NLPModule(
-    ngram_range=tuple(nlp_cfg["ngram_range"]),
-    C=nlp_cfg["C"]
-)
-nlp.fit(tickets_list)
-logger.info("Creating SHAP explainer for NLPModule")
-explainer_nlp = shap.LinearExplainer(nlp.model, nlp.vec.transform(tickets_list))
-
 # ─────────────────────────────────────────────────────────────────────────────
-# D) Simulate new transactions and extract features
-new_txns_df   = simulate(n_users=50, n_txns=20)
-new_txns_df["timestamp"] = pd.to_datetime(new_txns_df["timestamp"])
-features_new = extract_features(new_txns_df)
-# Align features: add missing, drop extra based on history
-features_new = features_new.reindex(columns=feature_cols, fill_value=0)
+# F) “New” transactions: sample 20 from history
+logger.info("Sampling new txns from real history…")
+new_txns = history.sample(20, random_state=1).reset_index(drop=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# E) Score modules
-scores_df = pd.DataFrame(index=new_txns_df.index)
+# G) Score them
+scores = []
+for _, txn in new_txns.iterrows():
+    user_id = str(txn.user)
+    uhist   = history[history.user == user_id]
+    # make sure timestamps are real datetimes
+    full["timestamp"] = pd.to_datetime(full["timestamp"])
+    full    = pd.concat([uhist, txn.to_frame().T], ignore_index=True)
+    feats   = extract_features(full).reindex(columns=feature_cols, fill_value=0)
+    fn      = feats.iloc[[-1]]
 
-# 1) Anomaly
-try:
-    scores_df["anomaly"] = anomaly.predict(features_new)
-    logger.debug("Anomaly scores computed")
-except Exception:
-    logger.exception("Anomaly detection failed; filling zeros")
-    scores_df["anomaly"] = 0
-
-# 2) Change-point
-z = features_new["zscore_amount"]
-try:
-    cp_scores = []
-    window_size = 10
-    for i in range(len(z)):
-        start = max(0, i - window_size + 1)
-        window = z.iloc[start:i+1]
-        cp_scores.append(cpd.score(window))
-    scores_df["change_point"] = cp_scores
-    logger.debug("Change-point scores computed")
-except Exception:
-    logger.exception("Change-point detection failed; filling zeros")
-    scores_df["change_point"] = 0
-
-# 3) Network
-try:
-    scores_df["network"] = new_txns_df["user"].apply(network.score)
-    logger.debug("Network scores computed")
-except Exception:
-    logger.exception("Network analysis failed; filling zeros")
-    scores_df["network"] = 0
-
-# 4) Identity
-try:
-    scores_df["id_cluster"] = new_txns_df["user"].apply(idclust.score)
-    logger.debug("Identity clustering scores computed")
-except Exception:
-    logger.exception("Identity clustering failed; filling -1")
-    scores_df["id_cluster"] = -1
-
-# 5) NLP
-try:
-    scores_df["nlp"] = new_txns_df["user"].apply(
-        lambda u: nlp.score(f"User {u} reported issue")
+    # context for NLP
+    ctx = (
+        f"User {user_id} txn {txn.amount} at {txn.merchant} "
+        f"in country {txn.country}"
     )
-    logger.debug("NLP scores computed")
-except Exception:
-    logger.exception("NLP scoring failed; filling 0.0")
-    scores_df["nlp"] = 0.0
 
-# 6) Fuse into final risk_score
-w_arr = np.array([
-    w_cfg["anomaly"], w_cfg["change_point"],
-    w_cfg["network"], w_cfg["id_cluster"], w_cfg["nlp"]
-])
-scores_df["risk_score"] = (
-    scores_df[["anomaly","change_point","network","id_cluster","nlp"]]
-    .values * w_arr
-).sum(axis=1)
+    # a) anomaly
+    raw = anomaly.model.decision_function(fn)[0]
+    a   = max(0.0, -float(raw))
+    # b) change-point last 10
+    cp  = float(cpd.score(feats["zscore_amount"].iloc[-10:]))
+    # c) network
+    net = float(network.score(user_id))
+    # d) identity
+    il  = idclust.score(user_id)
+    idsc= 1.0 if il == -1 else 0.0
+    # e) nlp
+    nl  = float(nlp.score(ctx))
 
-# ─────────────────────────────────────────────────────────────────────────────
-# F) Aggregate results
-result = pd.concat([new_txns_df, scores_df], axis=1)
-logger.info("Top 5 high-risk transactions:\n%s", result.sort_values("risk_score", ascending=False).head(5))
+    # fuse
+    arr  = np.array([a, cp, net, idsc, nl])
+    w    = np.array([
+        w_cfg["anomaly"],      w_cfg["change_point"],
+        w_cfg["network"],      w_cfg["id_cluster"],
+        w_cfg["nlp"]
+    ])
+    risk = float((arr * w).sum())
 
-# ─────────────────────────────────────────────────────────────────────────────
-# G) SHAP explainability
-shap_anom = explainer_anomaly.shap_values(features_new)
-texts_new = [f"User {u} reported issue" for u in new_txns_df["user"]]
-X_nlp_new = nlp.vec.transform(texts_new)
-shap_nlp   = explainer_nlp.shap_values(X_nlp_new)
-
-def top_k(shap_vals, names, k=3):
-    mean_abs = np.abs(shap_vals).mean(axis=0)
-    idx = np.argsort(mean_abs)[-k:][::-1]
-    return [(names[i], float(mean_abs[i])) for i in idx]
-
-feature_names      = feature_cols
-text_feature_names = nlp.vec.get_feature_names_out().tolist()
-explanations       = []
-for i in range(len(new_txns_df)):
-    explanations.append({
-        "anomaly": top_k(shap_anom[i:i+1], feature_names),
-        "nlp":     top_k(shap_nlp[i:i+1], text_feature_names)
+    scores.append({
+        **txn.to_dict(),
+        "anomaly":      a,
+        "change_point": cp,
+        "network":      net,
+        "id_cluster":   idsc,
+        "nlp":           nl,
+        "risk_score":   risk
     })
-result["explain"] = explanations
 
-# ─────────────────────────────────────────────────────────────────────────────
-# H) Rule‐based Decision Layer (no Kafka, just simulate)
-blocked, alerts, for_review = [], [], []
-auto_block = d_cfg["auto_block_threshold"]
-alert_t    = d_cfg["alert_threshold"]
-review_t   = d_cfg["review_threshold"]
-for _, row in result.iterrows():
-    score = row["risk_score"]
-    txn   = row.to_dict()
-    if score >= auto_block:
-        blocked.append(txn)
-    elif score >= alert_t:
-        alerts.append(txn)
-    elif score >= review_t:
-        for_review.append(txn)
-
-print("\n=== DECISION BREAKDOWN ===")
-print(f"Blocked   ({len(blocked)} txns):")
-for b in blocked:
-    print("  ", b)
-print(f"\nAlerts    ({len(alerts)} txns):")
-for a in alerts:
-    print("  ", a)
-print(f"\nReview    ({len(for_review)} txns):")
-for r in for_review:
-    print("  ", r)
+df_scores = pd.DataFrame(scores)
+print("\nTop 5 high-risk txns:")
+print(df_scores.sort_values("risk_score", ascending=False).head(5).to_string(index=False))

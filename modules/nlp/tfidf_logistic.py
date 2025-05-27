@@ -14,8 +14,9 @@ class NLPModule:
         """
         logger.info("Initializing NLPModule with ngram_range=%s, C=%s", ngram_range, C)
         try:
+            # ensure it's a tuple
             self.ngram_range = tuple(ngram_range)
-            self.vec = TfidfVectorizer(ngram_range=self.ngram_range)
+            self.vec   = TfidfVectorizer(ngram_range=self.ngram_range)
             self.model = LogisticRegression(C=C, max_iter=1000)
             logger.info("NLPModule initialization complete")
         except Exception:
@@ -41,9 +42,9 @@ class NLPModule:
         """
         try:
             X = self.vec.transform([text])
-            prob = self.model.predict_proba(X)[0, 1]
+            prob = float(self.model.predict_proba(X)[0, 1])
             logger.debug("NLP score for text '%s': %.4f", text, prob)
             return prob
         except Exception:
-            logger.exception("NLPModule.score failed, returning 0")
+            logger.exception("NLPModule.score failed, returning 0.0")
             return 0.0

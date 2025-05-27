@@ -1,15 +1,22 @@
 import pandas as pd
 import numpy as np
 from modules.anomaly.isolation_forest import AnomalyDetector
+from features.feature_engineering import extract_features
 
-def test_anomaly_detector_basic():
-    # Create a 2D feature array with 100 rows, 3 features
-    X = pd.DataFrame(np.random.randn(100, 3), columns=['f1','f2','f3'])
+def test_anomaly_detector_on_real_data():
+    # 1) Load your labeled transactions
+    df = pd.read_csv("data/transactions_labeled.csv", parse_dates=["timestamp"])
+    # 2) Build the feature matrix exactly as your pipeline does
+    feats = extract_features(df)
+    assert not feats.empty, "Feature extraction returned no rows"
+
+    # 3) Initialize & train the model
     model = AnomalyDetector(contamination=0.1, random_state=0)
-    # Should train without exception
-    model.fit(X)
-    # Predict should return an array of length 100
-    scores = model.predict(X)
-    assert len(scores) == 100
-    # Scores should be floats
-    assert all(isinstance(s, (float, np.floating)) for s in scores)
+    model.fit(feats)
+
+    # 4) Score on the same data
+    scores = model.predict(feats)
+
+    # 5) Verify output shape and types
+    assert len(scores) == len(feats), "Expected one score per row"
+    assert all(isinstance(s, (float, np.floating)) for s in scores), "All scores must be floats"

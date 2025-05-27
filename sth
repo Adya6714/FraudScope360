@@ -1,0 +1,5 @@
+import pandas as pd
+hist = pd.read_csv("data/transactions_labeled.csv", parse_dates=["timestamp"])
+print(hist["user"].unique()[:20])   # show the first 20 unique users
+
+
