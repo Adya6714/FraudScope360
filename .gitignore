@@ -8,3 +8,5 @@ __pycache__/
 data/train_transaction.csv
 data/train_transaction.csv
 data/test_transaction.csv
+data/train_transaction.csv
+data/test_transaction.csv
