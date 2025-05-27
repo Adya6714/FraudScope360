@@ -1,4 +1,4 @@
-# pipeline_demo_real.py
+# fraud_detection_app.py
 
 import pandas as pd
 import numpy as np
@@ -39,7 +39,6 @@ history = pd.read_csv(
     parse_dates=["timestamp"],
     low_memory=False
 )
-# ensure timestamp truly datetime and user truly string
 history["timestamp"] = pd.to_datetime(history["timestamp"])
 history["user"]      = history["user"].astype(str)
 logger.info("History rows: %d", len(history))
@@ -91,13 +90,17 @@ network = NetworkAnalyzer(
     window=g_cfg["window"]
 )
 
-logger.info("Training NLPModule (synthetic tickets)…")
-from data_ingest.simulate import simulate_tickets
-tickets = simulate_tickets(n=100)
-nlp     = NLPModule(ngram_range=tuple(nlp_cfg["ngram_range"]), C=nlp_cfg["C"])
+# E) Build NLP “tickets” from real history
+logger.info("Building NLP tickets from history…")
+tickets = (
+    history["merchant"].fillna("UNK").astype(str)
+    + " in country "
+    + history["country"].fillna(-1).astype(str)
+).tolist()
+nlp = NLPModule(ngram_range=tuple(nlp_cfg["ngram_range"]), C=nlp_cfg["C"])
 nlp.fit(tickets)
 
-# E) SHAP explainers
+# F) SHAP explainers
 logger.info("Building SHAP explainers…")
 explainer_anom = shap.KernelExplainer(
     lambda X: anomaly.model.decision_function(X),
@@ -109,45 +112,49 @@ explainer_nlp = shap.LinearExplainer(
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# F) “New” transactions: sample 20 from history
+# G) “New” transactions: sample 20 from history
 logger.info("Sampling new txns from real history…")
 new_txns = history.sample(20, random_state=1).reset_index(drop=True)
 
-# G) Score them
+# H) Score them
 scores = []
 for _, txn in new_txns.iterrows():
     user_id = str(txn.user)
-    uhist   = history[history.user == user_id]
-    # make sure timestamps are real datetimes
-    full["timestamp"] = pd.to_datetime(full["timestamp"])
-    full    = pd.concat([uhist, txn.to_frame().T], ignore_index=True)
-    feats   = extract_features(full).reindex(columns=feature_cols, fill_value=0)
-    fn      = feats.iloc[[-1]]
 
-    # context for NLP
+    # 1) build full user series + this txn
+    uhist = history[history.user == user_id]
+    new_row = txn.to_frame().T.copy()
+    new_row["timestamp"] = pd.to_datetime(new_row["timestamp"])
+    full   = pd.concat([uhist, new_row], ignore_index=True)
+
+    # 2) extract & align features
+    feats = extract_features(full).reindex(columns=feature_cols, fill_value=0)
+    fn    = feats.iloc[[-1]]
+
+    # 3) prepare NLP context
     ctx = (
         f"User {user_id} txn {txn.amount} at {txn.merchant} "
         f"in country {txn.country}"
     )
 
-    # a) anomaly
+    # 4a) anomaly
     raw = anomaly.model.decision_function(fn)[0]
     a   = max(0.0, -float(raw))
-    # b) change-point last 10
-    cp  = float(cpd.score(feats["zscore_amount"].iloc[-10:]))
-    # c) network
+    # 4b) change-point on last 10 z-scores
+    cp = float(cpd.score(feats["zscore_amount"].iloc[-10:]))
+    # 4c) network
     net = float(network.score(user_id))
-    # d) identity
-    il  = idclust.score(user_id)
-    idsc= 1.0 if il == -1 else 0.0
-    # e) nlp
-    nl  = float(nlp.score(ctx))
+    # 4d) identity
+    il   = idclust.score(user_id)
+    idsc = 1.0 if il == -1 else 0.0
+    # 4e) nlp
+    nl   = float(nlp.score(ctx))
 
     # fuse
     arr  = np.array([a, cp, net, idsc, nl])
     w    = np.array([
-        w_cfg["anomaly"],      w_cfg["change_point"],
-        w_cfg["network"],      w_cfg["id_cluster"],
+        w_cfg["anomaly"],    w_cfg["change_point"],
+        w_cfg["network"],    w_cfg["id_cluster"],
         w_cfg["nlp"]
     ])
     risk = float((arr * w).sum())
