@@ -4,4 +4,5 @@ venv311/
 __pycache__/
 *.pyc
 # Editor or OS files
-.DS_Store
+.DS_Storedata/test_transaction.csv
+data/train_transaction.csv
